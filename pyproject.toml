@@ -23,6 +23,7 @@ classifiers = [
 
 [project.scripts]
 lab-DM-control = 'asgard_lab_DM_tools.asgard_lab_DM_controller:start_gui'
+lab-DM-rtctest = "asgard_lab_DM_tools.rtc_lab_gui_test:start_gui"
 
 [project.urls]
 Homepage = "https://github.com/fmartinache/asgard_lab_DM_controller/"
