@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "asgard_lab_DM_tools"
+name = "asgard_lab_DM_tools_alt"
 version = "0.0.5"
 authors = [
   {name = "Frantz Martinache", email="frantz.martinache@oca.eu"},
@@ -22,9 +22,9 @@ classifiers = [
 ]
 
 [project.scripts]
-lab-DM-control = 'asgard_lab_DM_tools.asgard_lab_DM_controller:start_gui'
+#lab-DM-control = 'asgard_lab_DM_tools.asgard_lab_DM_controller:start_gui'
 lab-DM-rtctest = "asgard_lab_DM_tools.rtc_lab_gui_test:start_gui"
 
 [project.urls]
-Homepage = "https://github.com/fmartinache/asgard_lab_DM_controller/"
-Issues = "https://github.com/fmartinache/asgard_lab_DM_controller/issues"
+Homepage = "https://github.com/courtney-barrer/asgard-dm-tools_alt/"
+Issues = "https://github.com/courtney-barrer/asgard-dm-tools_alt/issues"

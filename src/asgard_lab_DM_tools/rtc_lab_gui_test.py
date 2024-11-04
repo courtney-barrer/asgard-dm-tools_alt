@@ -24,6 +24,8 @@ import glob
 import json
 import argparse
 
+
+
 """
 Edits for new RTC
 ---- to do ----- 
@@ -33,9 +35,10 @@ edit SHM setup (l 436-450 )
 uncomment l 626  (dm_cmd = remove_12x12_corners(self.data_img) # BCB write on dm shared memory to command DM)
 ensure DM can run without spinlock...
 """
-# import baldr as ba
-# from baldr import sardine as sa
-# import numpy as np
+import baldr as ba
+from baldr import sardine as sa
+import numpy as np
+import subprocess
 
 def remove_12x12_corners(image):
     # Create a mask to remove corners
@@ -50,31 +53,91 @@ def remove_12x12_corners(image):
 
     return filtered_image.flatten().tolist()
 
+# global variable for when testing with new rtc 
+global new_rtc 
+new_rtc = True 
 
-### << --- this isn't necessary , just a wrapper to interface with pre-existing code 
-# class rtc_shm:
-#     """
-#     Wrapper class to handle shared memory objects
-#     with Julien's new RTC so compatible with Frantz's SHM methods
-#     """
-#     def __init__(self, name , size, dtype=np.double):
-#         self.name = name
-#         self.size = size
-#         self.dtype = dtype
-#         self.data = sa.region.host.open_or_create(name, size, dtype=dtype) # frame is file name in /dev/shm
-#         self.url = sa.url_of(self.data)
+if new_rtc:
 
-#     def set_data(self, data):
-#         self.data = data
+    #dmid
 
-#     def get_data(self):
-#         return self.data
-    
-#     def get_url(self):
-#         return self.url
+    with open("cred3_camera_default_config.json") as f:
+        cred_cam_config = json.load(f)
 
-#     def close(self, erase_file=False):
-#         pass
+    commands = sa.region.host.open_or_create('commands', shape=[140], dtype=np.double)
+
+    commands_url = sa.url_of(commands)
+
+    dm_command = ba.Command.create(ba.Cmd.pause)
+
+    #frame_lock = ba.SpinLock.create()
+    commands_lock = ba.SpinLock.create()
+
+    #frame_lock_url = sa.url_of(frame_lock)
+    commands_lock_url = sa.url_of(commands_lock)
+
+    dm_config = {
+            'beam': f'{dmid}',
+            'component': 'dm',
+            'type': 'bmc',
+            'config': bmc_dm_config[f'{dmid}'], 
+            'io': {
+                'commands': commands_url.geturl(),
+            },
+            'sync': {
+                'wait': commands_lock_url.geturl(),
+            },
+            'command': sa.url_of(dm_command).geturl(),
+        }
+
+    baldr_config_file = open("baldr_config.json", "+w")
+
+    json.dump([dm_config], baldr_config_file)
+
+    baldr_config_file.close()
+
+    class clean_exit:
+        def __del__(self):
+            print("killing all")
+            dm_command.exit()
+            commands_lock.unlock()
+
+
+    # Run server with config file create above
+    process = subprocess.Popen(["build/Release/baldr_main", "--config", "baldr_config.json"]\
+                               ,stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    print("Process started with PID:", process.pid)
+
+    # ensure the DM server is running (not in paused state)
+    dm_command.run()
+
+
+
+    ## << --- this isn't necessary , just a wrapper to interface with pre-existing code 
+    class rtc_shm:
+        """
+        Wrapper class to handle shared memory objects
+        with Julien's new RTC so compatible with Frantz's SHM methods
+        """
+        def __init__(self, name , size, dtype=np.double):
+            self.name = name
+            self.size = size
+            self.dtype = dtype
+            self.data = sa.region.host.open_or_create(name, size, dtype=dtype) # frame is file name in /dev/shm
+            self.url = sa.url_of(self.data)
+
+        def set_data(self, data):
+            self.data = data
+
+        def get_data(self):
+            return self.data
+        
+        def get_url(self):
+            return self.url
+
+        def close(self, erase_file=False):
+            pass
 
 # at the end we just sum the shared memory objects from each channel to get the combined image
 # we just need to set the data of the shared memory that speaks to the DM server
@@ -86,40 +149,6 @@ def remove_12x12_corners(image):
 # # where it reads commands from
 # dm_cmd = sa.region.host.open_or_create('commands', shape=[140], dtype=np.double)
 # commands_url = sa.url_of(dm_cmd)
-
-# with open("bmc_DM_default_config.json") as f:
-#     bmc_dm_config = json.load(f)
-
-# # Hopefully don't need these locks to configure the DM!!
-##commands_lock = ba.SpinLock.create()
-##commands_lock_url = sa.url_of(commands_lock)
-
-# cmd_obj = ba.Command.create(ba.Cmd.pause) 
-# dm_server_config = {
-#     'beam': f'{dmid}',
-#     'component': 'dm',
-#     'type': 'bmc',
-#     'config': bmc_dm_config[dmid], 
-#     'io': {
-#         'commands': commands_url.geturl(),
-#     },
-#     'sync': { }, # can we remove this?
-#     #    'wait': commands_lock_url.geturl(),
-#     #    'idx': 0,
-#     #},
-#     'command': sa.url_of(cmd_obj).geturl(),
-# }
-
-## write dm server config file 
-# baldr_config_file = open("baldr_config.json", "+w")
-
-# json.dump([dm_server_config], gui_config_file)
-
-# gui_config_file.close()
-
-## Start DM server 
-# cmdtmp = ["build/Release/baldr_main", "--config", "gui_config_file.json"]
-# process = subprocess.Popen(cmdtmp,stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # =====================================================================
 # =====================================================================
@@ -449,27 +478,28 @@ class MyWindow(QMainWindow):
         # ==============================================
 
         # once we have our local sardine etc we can use this to replace below
-        #self.shms = [] # 
-        #for cc, ss,  in zip(['cmd1', 'cmd2', 'cmd3'],[[12,12],[12,12],[12,12]]):
-        #    self.shms.append( rtc_shm( name=cc , size=ss, dtype=np.double) )
-        #self.nch = len(self.shms)
+        if new_rtc : 
+            self.shms = [] # 
+            for cc, ss,  in zip(['cmd1', 'cmd2', 'cmd3'],[[12,12],[12,12],[12,12]]):
+               self.shms.append( rtc_shm( name=cc , size=ss, dtype=np.double) )
+            self.nch = len(self.shms)
 
-
-        shmfs = ['f1','f2','f3'] #np.sort(glob.glob(f"/dev/shm/dm{dmid}disp*.im.shm"))
-        shmf0 = f"/dev/shm/dm{dmid}.im.shm" # this is the one that combines all channels
-        print(f"shmf0 = {shmf0}")
-        print(shmfs)
-        self.nch = len(shmfs)
-
-        self.shms = [] # 
-        for ii in range(self.nch):
-            self.shms.append(shm(shmfs[ii]))
-            print(f"added: {shmfs[ii]}")  # % (shmfs[ii],))
-
-        if self.nch != 0:
-            self.shm0 = shm(shmf0)
         else:
-            print("Shared memory structures unavailable. DM server started?")
+            shmfs = ['f1','f2','f3'] #np.sort(glob.glob(f"/dev/shm/dm{dmid}disp*.im.shm"))
+            shmf0 = f"/dev/shm/dm{dmid}.im.shm" # this is the one that combines all channels
+            print(f"shmf0 = {shmf0}")
+            print(shmfs)
+            self.nch = len(shmfs)
+
+            self.shms = [] # 
+            for ii in range(self.nch):
+                self.shms.append(shm(shmfs[ii]))
+                print(f"added: {shmfs[ii]}")  # % (shmfs[ii],))
+
+            if self.nch != 0:
+                self.shm0 = shm(shmf0)
+            else:
+                print("Shared memory structures unavailable. DM server started?")
 
 
 
@@ -540,7 +570,11 @@ class MyWindow(QMainWindow):
                 self.ui.zer_a0[ii] = a0 * self.ui.slid_zer[ii].value()
             self.ui.lbl_disp_zer[ii].setText(f"{self.ui.zer_a0[ii]:.3f}")
             zmap += self.ui.zer_a0[ii] * self.ui.zbank[ii]
-        self.shms[2] = zmap #.set_data(zmap)
+        
+        if new_rtc:
+            self.shms[0].set_data(zmap)
+        else:
+            self.shms[2] = zmap #.set_data(zmap)
 
         pass
 
@@ -565,7 +599,10 @@ class MyWindow(QMainWindow):
         if self.ui.chB_actv_flat.isChecked():
             # flat_cmd = np.loadtxt("./17DW019#113_FLAT_MAP_COMMANDS.txt")
             flat_cmd = np.loadtxt(self.select_flat_cmd(wdir))
-            self.shms[0] = cmd_2_map2D(flat_cmd, fill=0.0) #.set_data(cmd_2_map2D(flat_cmd, fill=0.0))
+            if new_rtc:
+                self.shms[0].set_data(cmd_2_map2D(flat_cmd, fill=0.0))
+            else:
+                self.shms[0] = cmd_2_map2D(flat_cmd, fill=0.0) #.set_data(cmd_2_map2D(flat_cmd, fill=0.0))
             gui_conf['flat_checkbox'] = True
         else:
             self.shms[0] = np.zeros((dms, dms)) #.set_data(np.zeros((dms, dms)))
@@ -584,7 +621,12 @@ class MyWindow(QMainWindow):
             cross_cmd = np.zeros((dms, dms))
             cross_cmd[ii0:ii0+2, :] = a0
             cross_cmd[:, ii0:ii0+2] = a0
-            self.shms[1] = cross_cmd #.set_data(cross_cmd)
+
+            if new_rtc:
+                self.shms[1].set_data(cross_cmd)
+            else:   
+                self.shms[1] = cross_cmd #.set_data(cross_cmd)
+
             gui_conf['cross_checkbox'] = True
         else:
             self.shms[1] = np.zeros((dms, dms)) # .set_data(np.zeros((dms, dms)))
@@ -611,7 +653,10 @@ class MyWindow(QMainWindow):
             if self.ui.chB_actv_cross.isChecked():
                 self.ui.chB_actv_cross.setChecked(False)
             pattern = np.roll(ftest(dms, dms, 2), (-1, -1), axis=(0, 1))
-            self.shms[1] = self.ui.ftest_a0 * pattern #.set_data(self.ui.ftest_a0 * pattern)
+            if new_rtc:
+                self.shms[1].set_data(self.ui.ftest_a0 * pattern)
+            else:
+                self.shms[1] = self.ui.ftest_a0 * pattern #.set_data(self.ui.ftest_a0 * pattern)
             gui_conf['ftest_checkbox'] = True
         else:
             self.shms[1] = np.zeros((dms, dms)) # .set_data(np.zeros((dms, dms)))
@@ -637,7 +682,11 @@ class MyWindow(QMainWindow):
     # =========================================================
     def refresh_img(self):
         if self.nch > 0:
-            self.data_img = np.sum( self.shms , axis=0 ) #self.shm0.get_data()  # combined channel
+            if new_rtc:
+                self.data_img = np.sum([ss.get_data() for ss in self.shms], axis=0)
+                commands = remove_12x12_corners(self.data_img) #write on dm shared memory to command DM
+            else:
+                self.data_img = np.sum( self.shms , axis=0 ) #self.shm0.get_data()  # combined channel
             # self.data_img = self.shms[0].get_data()  # combined channel
         self.ui.imv_data.setImage(
             arr2im(self.data_img, vmin=0, vmax=1, cmap=self.mycmap),

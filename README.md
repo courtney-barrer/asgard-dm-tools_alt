@@ -5,7 +5,8 @@ At least for now, a PyQt5 GUI designed to control one of the four deformable mir
 
 ## Installation
 
-> pip install asgard_lab_DM_controller
+> git clone 
+> pip install -e . 
 
 ## Usage
 
